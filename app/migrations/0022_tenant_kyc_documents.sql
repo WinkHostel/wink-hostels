@@ -1,0 +1,2 @@
+CREATE TABLE IF NOT EXISTS tenant_kyc_documents (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, property TEXT NOT NULL, tenant_name TEXT NOT NULL, document_name TEXT NOT NULL, content_type TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE, file_size INTEGER NOT NULL DEFAULT 0, uploaded_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX IF NOT EXISTS idx_tenant_kyc_documents_tenant ON tenant_kyc_documents(tenant_id, created_at DESC);

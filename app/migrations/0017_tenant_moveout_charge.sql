@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN move_out_charge REAL NOT NULL DEFAULT 500;
