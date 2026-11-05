@@ -4,7 +4,7 @@ import { bindings } from "../bindings.server";
 import { sessionTenantForPayments } from "./tenant-portal.server";
 
 const tokenSchema = z.string().min(20).max(128);
-const fields = ["permanent_address", "emergency_contact_name", "emergency_contact_phone", "blood_group", "guardian_name", "guardian_phone", "occupation", "profile_photo", "aadhaar", "company_college_id"] as const;
+const fields = ["permanent_address", "emergency_contact_name", "emergency_contact_phone", "blood_group", "occupation", "profile_photo", "aadhaar", "company_college_id"] as const;
 const documents = ["aadhaar", "company_college_id", "profile_photo", "other"] as const;
 const defaults = { mandatoryFields: ["permanent_address", "emergency_contact_name", "emergency_contact_phone", "profile_photo", "aadhaar"], mandatoryDocuments: ["aadhaar"] };
 async function digest(token: string) {
@@ -21,7 +21,7 @@ async function configFor(DB: any, property: string) {
   const row = await DB.prepare("SELECT mandatory_fields_json,mandatory_documents_json FROM property_onboarding_configs WHERE property=?").bind(property).first() as any;
   try {
     return {
-      mandatoryFields: row ? JSON.parse(row.mandatory_fields_json) as string[] : defaults.mandatoryFields,
+      mandatoryFields: (row ? JSON.parse(row.mandatory_fields_json) as string[] : defaults.mandatoryFields).filter((key:string) => key !== "guardian_name" && key !== "guardian_phone"),
       mandatoryDocuments: row ? JSON.parse(row.mandatory_documents_json) as string[] : defaults.mandatoryDocuments,
     };
   } catch { return defaults; }
@@ -91,7 +91,7 @@ export const saveTenantOnboardingAdmin = createServerFn({ method: "POST" }).vali
   const id = realId(data.tenantId);
   const tenant = await DB.prepare("SELECT property FROM tenants WHERE id=?").bind(id).first<any>(); if (!tenant) return { ok: false as const, message: "Tenant not found." };
   const p = data.profile;
-  await DB.prepare("INSERT INTO tenant_onboarding_profiles(tenant_id,property,blood_group,guardian_name,guardian_phone,occupation,permanent_address,emergency_contact_name,emergency_contact_phone,updated_at) VALUES(?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(tenant_id) DO UPDATE SET property=excluded.property,blood_group=excluded.blood_group,guardian_name=excluded.guardian_name,guardian_phone=excluded.guardian_phone,occupation=excluded.occupation,permanent_address=excluded.permanent_address,emergency_contact_name=excluded.emergency_contact_name,emergency_contact_phone=excluded.emergency_contact_phone,updated_at=datetime('now')").bind(id,tenant.property,p.bloodGroup,p.guardianName,p.guardianPhone,p.occupation,p.permanentAddress,p.emergencyContactName,p.emergencyContactPhone).run();
+  await DB.prepare("INSERT INTO tenant_onboarding_profiles(tenant_id,property,blood_group,guardian_name,guardian_phone,occupation,permanent_address,emergency_contact_name,emergency_contact_phone,updated_at) VALUES(?,?,?,?,?,?,?,?,?,datetime('now')) ON CONFLICT(tenant_id) DO UPDATE SET property=excluded.property,blood_group=excluded.blood_group,guardian_name=excluded.guardian_name,guardian_phone=excluded.guardian_phone,occupation=excluded.occupation,permanent_address=excluded.permanent_address,emergency_contact_name=excluded.emergency_contact_name,emergency_contact_phone=excluded.emergency_contact_phone,updated_at=datetime('now')").bind(id,tenant.property,p.bloodGroup,"","",p.occupation,p.permanentAddress,p.emergencyContactName,p.emergencyContactPhone).run();
   return { ok: true as const, message: "Tenant details updated by admin." };
 });
 
@@ -103,7 +103,7 @@ export const saveTenantOnboardingFromPortal = createServerFn({ method: "POST" })
   if (existing?.submitted_at) {
     const oldDocs = await DB.prepare("SELECT document_type FROM tenant_kyc_documents WHERE tenant_id=? AND is_current=1 AND review_status!='Rejected'").bind(tenant.id).all<{document_type:string}>();
     const oldTypes = new Set((oldDocs.results||[]).map(row=>row.document_type));
-    const oldValues:Record<string,string>={permanent_address:existing.permanent_address||"",emergency_contact_name:existing.emergency_contact_name||"",emergency_contact_phone:existing.emergency_contact_phone||"",blood_group:existing.blood_group||"",guardian_name:existing.guardian_name||"",guardian_phone:existing.guardian_phone||"",occupation:existing.occupation||""};
+    const oldValues:Record<string,string>={permanent_address:existing.permanent_address||"",emergency_contact_name:existing.emergency_contact_name||"",emergency_contact_phone:existing.emergency_contact_phone||"",blood_group:existing.blood_group||"",occupation:existing.occupation||""};
     const docFields=["profile_photo","aadhaar","company_college_id"];
     const oldComplete=config.mandatoryFields.every(key=>docFields.includes(key)?oldTypes.has(key):!!String(oldValues[key]||"").trim())&&config.mandatoryDocuments.every(key=>oldTypes.has(key));
     if(oldComplete)return {ok:false as const,message:"Your onboarding has already been submitted. Contact management if any detail needs correction."};
@@ -112,7 +112,7 @@ export const saveTenantOnboardingFromPortal = createServerFn({ method: "POST" })
   let aadhaarCiphertext = existing?.aadhaar_ciphertext || "";
   let aadhaarLast4 = existing?.aadhaar_last4 || "";
   if (p.aadhaarNumber) { try { aadhaarCiphertext = await encryptAadhaar(p.aadhaarNumber); aadhaarLast4 = p.aadhaarNumber.slice(-4); } catch (e) { return { ok:false as const, message: e instanceof Error ? e.message : "Aadhaar encryption is unavailable." }; } }
-  const values: Record<string,string> = { permanent_address:p.permanentAddress, emergency_contact_name:p.emergencyContactName, emergency_contact_phone:p.emergencyContactPhone, blood_group:p.bloodGroup, guardian_name:p.guardianName, guardian_phone:p.guardianPhone, occupation:p.occupation };
+  const values: Record<string,string> = { permanent_address:p.permanentAddress, emergency_contact_name:p.emergencyContactName, emergency_contact_phone:p.emergencyContactPhone, blood_group:p.bloodGroup, guardian_name:"", guardian_phone:"", occupation:p.occupation };
   for (const key of config.mandatoryFields) {
     if (["profile_photo","aadhaar","company_college_id"].includes(key)) {
       const doc = await DB.prepare("SELECT id FROM tenant_kyc_documents WHERE tenant_id=? AND document_type=? AND is_current=1 AND review_status!='Rejected' LIMIT 1").bind(tenant.id,key).first();

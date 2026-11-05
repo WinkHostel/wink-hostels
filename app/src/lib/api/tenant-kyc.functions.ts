@@ -100,13 +100,13 @@ export const uploadTenantKycDocumentFromPortal = createServerFn({ method: "POST"
   const tenant = await sessionTenantForPayments(data.token);
   if (!tenant) return { ok: false as const, message: "Your session expired. Please sign in again." };
   const profile = await DB.prepare("SELECT submitted_at FROM tenant_onboarding_profiles WHERE tenant_id=?").bind(tenant.id).first<any>();
-  const current = await DB.prepare("SELECT review_status FROM tenant_kyc_documents WHERE tenant_id=? AND document_type=? AND is_current=1").bind(tenant.id, data.documentType).first<any>();
-  if (current && current.review_status !== "Rejected") return { ok: false as const, message: "This document is already submitted. You can replace it only after management rejects it." };
+  const current = data.documentType === "other" ? null : await DB.prepare("SELECT review_status FROM tenant_kyc_documents WHERE tenant_id=? AND document_type=? AND is_current=1").bind(tenant.id, data.documentType).first<any>();
+  if (data.documentType !== "other" && current && current.review_status !== "Rejected") return { ok: false as const, message: "This document is already submitted. You can replace it only after management rejects it." };
   let bytes: Uint8Array;
   try { bytes = decodeFile(data.base64, data.contentType); } catch (error) { return { ok: false as const, message: error instanceof Error ? error.message : "Invalid file." }; }
   const key = `tenant-kyc/${tenant.id}/${crypto.randomUUID()}`;
   await STORAGE.put(key, bytes, { httpMetadata: { contentType: data.contentType, contentDisposition: "attachment" } });
-  await DB.prepare("UPDATE tenant_kyc_documents SET is_current=0 WHERE tenant_id=? AND document_type=? AND is_current=1").bind(tenant.id, data.documentType).run();
+  if (data.documentType !== "other") await DB.prepare("UPDATE tenant_kyc_documents SET is_current=0 WHERE tenant_id=? AND document_type=? AND is_current=1").bind(tenant.id, data.documentType).run();
   await DB.prepare("INSERT INTO tenant_kyc_documents(tenant_id,property,tenant_name,document_name,content_type,object_key,file_size,uploaded_by,document_type,review_status,is_current) VALUES(?,?,?,?,?,?,?,'Tenant',?,'Pending',1)").bind(tenant.id, tenant.property, tenant.full_name, data.fileName, data.contentType, key, bytes.length, data.documentType).run();
   await DB.prepare("UPDATE tenants SET kyc_status=CASE WHEN kyc_status='Verified' THEN 'Submitted' ELSE kyc_status END,updated_at=datetime('now') WHERE id=?").bind(tenant.id).run();
   return { ok: true as const, message: "Document uploaded securely and submitted for management review." };
